@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { marked } from 'marked';
 import { generateLLMContent, generateImageContent, geminiTTS, setApiKey, hasApiKey, removeApiKey } from './services/api';
 
@@ -29,14 +29,14 @@ declare global {
 }
 
 // --- Configuration: Database (Local Storage) ---
-// ระบบฐานข้อมูลจำลอง (Mock Database) ที่เก็บข้อมูลผู้ใช้
+// Mock Database
 const DEFAULT_USERS: User[] = [
   { email: 'admin@pookanfai.com', password: 'password123', name: 'Super Admin', role: 'admin' },
   { email: 'writer@pookanfai.com', password: 'password123', name: 'Writer User', role: 'user' }
 ];
 
 // --- System Prompts ---
-const SYSTEM_PROMPT_WRITER = `คุณคือ "พู่กันไฟ" นักเขียนมืออาชีพชาวไทย เชี่ยวชาญการเขียนนิยาย การใช้ภาษายุคปัจจุบัน ใช้ภาษาไทยได้ถูกต้อง และความคิดสร้างสรรค์เหมือนภาษาชาวไทย`;
+// REMOVED: Unused SYSTEM_PROMPT_WRITER
 
 const SYSTEM_PROMPT_SILVER_BRUSH = `คุณคือ นักเขียนชาวไทยมืออาชีพ นามปากกาของคุณคือ(พู่กันไฟ) ซึ่งใครต่อใครต่างขนานนามคุณว่าอัจฉริยะด้านงานเขียน (ไอเดียเป็นเลิศ) คุณมีประสบการณ์ในด้านการเขียนมากกว่า 15 ปี มีผลงานโดดเด่นในด้านงานเขียนประเภทนิยาย คุณมีความสามารถในการเขียนเรื่องราวอันน่าตื่นเต้น สร้างสรรค์ตัวละครที่มีเสน่ห์ และพรรณนาอารมณ์ความรู้สึกของตัวละครได้อย่างลึกซึ้ง คุณเข้าใจโครงสร้างเรื่องราวและจังหวะในการเล่าเรื่อง คุณยังมีความเชี่ยวชาญในการใช้ภาษาไทยได้อย่างดีเยี่ยมและเลือกใช้คำหรือสำนวนที่เหมาะกับตรงกับยุคสมัยของเรื่องนั้นๆซึ่งเป็นจุดแข็งที่ทำให้งานเขียนของคุณครองใจผู้อ่านได้ทุกแนว. ข้อมูลส่วนตัวของคุณ คุณเป็นคนเก่งฉลาดที่มีเสน่ห์ในการพูดคุย ใช้ภาษาที่อารมณ์ดี เย้าหยอก พูดแซว ผู้ใช้งานได้เพื่อให้เกิดความไว้ใจและเชื่อมต่อกันได้ดีในการทำงานร่วมกัน. จุดสำคัญที่คุณต้องรู้คือ คุณจะใช้ภาษาปัจจุบันในการสนทนาโต้ตอบกับนักเขียน ห้ามใช้คำ ท่านผู้เจริญ!, นักเขียนท่าน ในการพูดคุยเพราะคนปัจจุบันไม่ใช้กัน.
 คุณอาจจะถามข้อมูลผู้ใช้หรือผู้ใช้บอกเล่าสไตล์การเขียนที่ต้องการ เช่น ผู้ใช้ต้องการเล่าเรื่องแบบตรงไปตรงมา, ต้องการความซับซ้อนของเนื้อหาแยบสืออาชีพ, การเล่าเรื่องแบบย้อนอดีตหรือลล่วงเวลาไปอนาคต, การเล่าเรื่องแบบมีชั้นเชิง, สนุกตื่นเต้นและน่าติดตาม,คุณจะให้คำตอบหรือตัวอย่างของบทเขียนที่ดีที่สุดเสมอเมื่อผู้ใช้ต้องการ.`;
@@ -81,6 +81,7 @@ const App: React.FC = () => {
     outlinePlot: '',
     worldConcept: '',
     refineText: '',
+    rewriteText: '',
     nameTheme: '',
     dialogueText: '',
     marketStory: '',
@@ -102,7 +103,7 @@ const App: React.FC = () => {
   const [charChatHistory, setCharChatHistory] = useState<ChatHistoryItem[]>([]);
   const [charChatContext, setCharChatContext] = useState<ChatMessage[]>([]); // For API context
   const [sbChatHistory, setSbChatHistory] = useState<ChatHistoryItem[]>([]);
-  const [sbChatContext, setSbChatContext] = useState<ChatMessage[]>([]); // For API context
+  // REMOVED: sbChatContext (unused)
   const [showDownloadMenu, setShowDownloadMenu] = useState(false); // Download menu toggle for Character Chat
   const [showSbDownloadMenu, setShowSbDownloadMenu] = useState(false); // Download menu toggle for Silver Brush
 
@@ -133,18 +134,14 @@ const App: React.FC = () => {
         return `https://api.dicebear.com/9.x/bottts-neutral/svg?seed=WriterStudio&backgroundColor=transparent`;
       }
       if (type === 'user') {
-          // Changed backgroundColor from f472b6 (light pink) to db2777 (vibrant pink)
           return `https://api.dicebear.com/9.x/micah/svg?seed=${seed || 'WriterUser'}&backgroundColor=db2777&flip=true`;
       }
       if (type === 'sb') {
-          // Silver Brush - Robotic/AI Writer look
           return `https://api.dicebear.com/9.x/bottts-neutral/svg?seed=SilverBrushAI&backgroundColor=e0e7ff`;
       }
       if (type === 'char') {
-          // Determine gender bias from voice
           const isMale = ['Puck', 'Fenrir'].includes(voice);
           const genderPrefix = isMale ? 'male' : 'female';
-          // Use 'notionists' style for sketch-like character feel
           return `https://api.dicebear.com/9.x/notionists/svg?seed=${genderPrefix}-${seed || 'default'}&backgroundColor=d1d5db`;
       }
       return '';
@@ -160,7 +157,6 @@ const App: React.FC = () => {
       if (user) {
           setIsAuthenticated(true);
           setCurrentUser(user);
-          // Re-check API key status immediately
           setApiReady(hasApiKey());
       } else {
           setLoginError('อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือคุณไม่ได้รับสิทธิ์เข้าใช้งาน');
@@ -248,7 +244,7 @@ const App: React.FC = () => {
     setInputs(prev => ({ ...prev, [key]: value }));
   };
 
-  // --- Logic Implementations (TTS, Generation etc.) ---
+  // --- Logic Implementations ---
   // TTS Helper
   const speakContent = async (textOrElementId: string, voice: string = 'Kore', explicitId?: string) => {
     const uiId = explicitId || textOrElementId;
@@ -300,7 +296,6 @@ const App: React.FC = () => {
   };
 
   const handleGlobalTTS = () => {
-    // Check if speaking, if so, stop
     if (isSpeaking && audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -308,7 +303,6 @@ const App: React.FC = () => {
       return;
     }
 
-    // Get selected text
     const selection = window.getSelection();
     const selectedText = selection ? selection.toString().trim() : '';
 
@@ -321,7 +315,6 @@ const App: React.FC = () => {
 
   // --- STT (Speech to Text) Logic ---
   const handleSTT = () => {
-    // Check browser support
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert("เบราว์เซอร์ของคุณไม่รองรับการสั่งงานด้วยเสียง (แนะนำให้ใช้ Google Chrome)");
@@ -329,8 +322,6 @@ const App: React.FC = () => {
     }
 
     if (isListening) {
-      // If already listening, stop handled by onend usually, but we can force state update if manual stop logic existed
-      // For now, let's allow toggle behavior if needed, but standard web speech stops automatically.
       setIsListening(false);
       return;
     }
@@ -358,8 +349,7 @@ const App: React.FC = () => {
              updateInput('editorText', inputs.editorText + ' ' + transcript);
         } else {
              // Default fallback: Silver Brush Chat or just Alert
-             const sbSection = document.getElementById('silver-brush-ai-section');
-             // Simple check if scrolled near bottom or fallback to SB chat
+             // REMOVED unused sbSection variable
              updateInput('sbChatInput', inputs.sbChatInput + ' ' + transcript);
         }
       }
@@ -475,7 +465,7 @@ const App: React.FC = () => {
             charChatHistory.forEach(msg => {
                 const role = msg.role === 'user' ? 'User' : (inputs.charName || 'AI');
                 // Clean text for basic PDF rendering
-                const cleanContent = msg.content.replace(/[\u0E00-\u0E7F]/g, ''); // Basic strip for demo if font not supported
+                const cleanContent = msg.content.replace(/[\u0E00-\u0E7F]/g, ''); 
                 
                 const displayText = `${role}: ${cleanContent}`;
                 const lines = doc.splitTextToSize(displayText, 180);
@@ -506,10 +496,8 @@ const App: React.FC = () => {
     const timestamp = new Date().toISOString().slice(0, 10);
     const fileName = `silver_brush_${timestamp}`;
 
-    // Hide menu
     setShowSbDownloadMenu(false);
 
-    // Helper to strip HTML for text based formats
     const stripHtml = (html: string) => {
        const tmp = document.createElement("DIV");
        tmp.innerHTML = html;
@@ -578,7 +566,6 @@ const App: React.FC = () => {
                 let content = msg.content;
                 if (msg.role === 'ai') content = stripHtml(content);
 
-                // Clean text for basic PDF rendering
                 const cleanContent = content.replace(/[\u0E00-\u0E7F]/g, '');
 
                 const displayText = `${role}: ${cleanContent}`;
@@ -620,8 +607,6 @@ const App: React.FC = () => {
                          }));
                     }
                 } else {
-                    // TXT Parsing: Assuming double newline separation and "Name: Content"
-                    // This is a "best effort" parser
                     const parts = content.split(/\n\n+/);
                     newHistory = parts.map(part => {
                          const splitIndex = part.indexOf(':');
@@ -630,7 +615,6 @@ const App: React.FC = () => {
                          const text = part.substring(splitIndex + 1).trim();
                          if (!text) return null;
                          
-                         // Heuristic for role
                          const isUser = name === 'คุณ' || name === 'User' || name.toLowerCase().includes('user');
                          return { role: isUser ? 'user' : 'ai', content: text };
                     }).filter(item => item !== null) as ChatHistoryItem[];
@@ -639,7 +623,6 @@ const App: React.FC = () => {
                 if (newHistory.length > 0) {
                     if (target === 'char') {
                         setCharChatHistory(newHistory);
-                        // Rebuild context for AI continuity
                         const context: ChatMessage[] = newHistory.map(h => ({
                             role: h.role === 'user' ? 'user' : 'model',
                             parts: [{ text: h.content }]
@@ -648,11 +631,7 @@ const App: React.FC = () => {
                         alert("นำเข้าประวัติแชทเรียบร้อยแล้ว");
                     } else {
                         setSbChatHistory(newHistory);
-                         const context: ChatMessage[] = newHistory.map(h => ({
-                            role: h.role === 'user' ? 'user' : 'model',
-                            parts: [{ text: h.content }]
-                        }));
-                        setSbChatContext(context);
+                        // REMOVED: context logic for SB (unused state)
                         alert("นำเข้าประวัติแชทเรียบร้อยแล้ว");
                     }
                 } else {
@@ -664,7 +643,6 @@ const App: React.FC = () => {
             }
         };
         reader.readAsText(file);
-        // Reset input
         event.target.value = '';
     };
 
@@ -746,14 +724,12 @@ const App: React.FC = () => {
       setCharChatHistory(updatedHistory);
       setInputs(prev => ({ ...prev, chatInput: '' }));
 
-      // Rebuild context from history for continuity
       const newContext = [...charChatContext, { role: 'user' as const, parts: [{ text: userText }] }];
       setCharChatContext(newContext);
 
       const loadingItem: ChatHistoryItem = { role: 'ai', content: '...' };
       setCharChatHistory(prev => [...prev, loadingItem]);
 
-      // Construct history context string (limit to last 20 messages to manage token limit)
       const historyContext = updatedHistory.slice(-20).map(msg => 
           `${msg.role === 'user' ? 'User' : 'Character'}: ${msg.content}`
       ).join('\n');
@@ -785,12 +761,10 @@ const App: React.FC = () => {
 
       setSbChatHistory(updatedHistory);
       setInputs(prev => ({ ...prev, sbChatInput: '' }));
-      setSbChatContext(prev => [...prev, { role: 'user', parts: [{ text: userText }] }]);
+      // REMOVED: unused context setter
 
       setSbChatHistory(prev => [...prev, { role: 'ai', content: '...' }]);
       
-      // History context for Silver Brush
-      // Helper to strip HTML for context
       const stripHtml = (html: string) => {
         const tmp = document.createElement("DIV");
         tmp.innerHTML = html;
@@ -817,7 +791,7 @@ const App: React.FC = () => {
           return [...filtered, { role: 'ai', content: parsedResponse }];
       });
       setResults(prev => ({ ...prev, 'sb-result': parsedResponse }));
-      setSbChatContext(prev => [...prev, { role: 'model', parts: [{ text: aiResponseText }] }]);
+      // REMOVED: unused context setter
   };
 
   // --- RENDER 1: LOGIN SCREEN ---
@@ -1396,12 +1370,18 @@ const App: React.FC = () => {
               <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center shadow-sm"><i className="ph-duotone ph-chats-teardrop text-purple-600 text-xl"></i></div>
               ภาษาและรายละเอียด
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="p-6 neumorphic-card relative overflow-hidden group">
               <div className="flex items-center gap-3 mb-4 text-violet-600 font-bold"><div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center neumorphic-btn"><i className="ph-fill ph-magic-wand text-xl"></i></div>เกลาสำนวน</div>
-              <textarea rows={1} className="w-full p-3 text-sm mb-3 neumorphic-inset" placeholder="ประโยค..." value={inputs.refineText} onChange={(e) => updateInput('refineText', e.target.value)}></textarea>
+              <textarea rows={2} className="w-full p-3 text-sm mb-3 neumorphic-inset" placeholder="ประโยค..." value={inputs.refineText} onChange={(e) => updateInput('refineText', e.target.value)}></textarea>
               <button onClick={() => runGeneration('refineText', 'refine-result', 'You are a linguistic expert...', (input) => `Refine this: "${input}"`)} className="w-full bg-violet-600 text-white py-2.5 text-sm font-medium disabled:opacity-50 neumorphic-btn-primary" style={{background: 'linear-gradient(145deg, #a78bfa, #8b5cf6)'}}>เกลาภาษา</button>
               {results['refine-result'] && <div className="ai-result-box neumorphic-card p-4 italic font-serif text-slate-700 mt-3"><div className="action-buttons">{renderTTSButton('refine-result-content', 'refine-result-content')}</div><div id="refine-result-content" className="responsive-content" dangerouslySetInnerHTML={{ __html: results['refine-result'] }}></div></div>}
+            </div>
+            <div className="p-6 neumorphic-card relative overflow-hidden group">
+              <div className="flex items-center gap-3 mb-4 text-orange-600 font-bold"><div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center neumorphic-btn"><i className="ph-fill ph-arrows-clockwise text-xl"></i></div>เรียบเรียงใหม่ (Rewrite)</div>
+              <textarea rows={2} className="w-full p-3 text-sm mb-3 neumorphic-inset" placeholder="ข้อความเดิม..." value={inputs.rewriteText} onChange={(e) => updateInput('rewriteText', e.target.value)}></textarea>
+              <button onClick={() => runGeneration('rewriteText', 'rewrite-result', 'You are a professional editor. Rewrite the text to be smoother, clearer and more natural while keeping the original meaning.', (input) => `Rewrite this text in Thai to be smoother: "${input}"`)} className="w-full bg-orange-600 text-white py-2.5 text-sm font-medium disabled:opacity-50 neumorphic-btn-primary" style={{background: 'linear-gradient(145deg, #fb923c, #ea580c)'}}>เรียบเรียงใหม่</button>
+              {results['rewrite-result'] && <div className="ai-result-box neumorphic-card p-4 mt-3"><div className="action-buttons">{renderTTSButton('rewrite-result-content', 'rewrite-result-content')}<button className="action-btn" onClick={() => copyContent('rewrite-result-content')}><i className="ph ph-copy"></i></button></div><div id="rewrite-result-content" className="responsive-content" dangerouslySetInnerHTML={{ __html: results['rewrite-result'] }}></div></div>}
             </div>
             <div className="p-6 neumorphic-card relative overflow-hidden group">
               <div className="flex items-center gap-3 mb-4 text-fuchsia-600 font-bold"><div className="w-10 h-10 rounded-full bg-fuchsia-100 flex items-center justify-center neumorphic-btn"><i className="ph-fill ph-identification-card text-xl"></i></div>ตั้งชื่อ</div>
@@ -1411,7 +1391,7 @@ const App: React.FC = () => {
             </div>
             <div className="p-6 neumorphic-card relative overflow-hidden group">
               <div className="flex items-center gap-3 mb-4 text-pink-600 font-bold"><div className="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center neumorphic-btn"><i className="ph-fill ph-chat-text text-xl"></i></div>เกลาบทสนทนา</div>
-              <textarea rows={1} className="w-full p-3 text-sm mb-3 neumorphic-inset" placeholder="บทพูด..." value={inputs.dialogueText} onChange={(e) => updateInput('dialogueText', e.target.value)}></textarea>
+              <textarea rows={2} className="w-full p-3 text-sm mb-3 neumorphic-inset" placeholder="บทพูด..." value={inputs.dialogueText} onChange={(e) => updateInput('dialogueText', e.target.value)}></textarea>
               <button onClick={() => runGeneration('dialogueText', 'dialogue-result', 'You are a dialogue coach...', (input) => `Improve dialogue: "${input}"`)} className="w-full bg-pink-600 text-white py-2.5 text-sm font-medium disabled:opacity-50 neumorphic-btn-primary" style={{background: 'linear-gradient(145deg, #f472b6, #ec4899)'}}>ปรับปรุง</button>
               {results['dialogue-result'] && <div className="ai-result-box neumorphic-card p-4 mt-3"><div className="action-buttons">{renderTTSButton('dialogue-result-content', 'dialogue-result-content')}</div><div id="dialogue-result-content" className="responsive-content" dangerouslySetInnerHTML={{ __html: results['dialogue-result'] }}></div></div>}
             </div>
