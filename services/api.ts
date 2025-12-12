@@ -5,14 +5,14 @@ const STORAGE_KEY = "gemini_api_key";
 // Declare process for TypeScript to avoid "Cannot find name 'process'" error during build
 declare const process: {
   env: {
-    API_KEY?: string;
+    GEMINI_API_KEY?: string;
     [key: string]: any;
   }
 };
 
 // Store the client instance and key in module scope
 // Priority: 1. LocalStorage (User entered) 2. Process Env (Deploy config) 3. Empty
-let currentApiKey = localStorage.getItem(STORAGE_KEY) || (typeof process !== 'undefined' ? process.env.API_KEY : "") || "";
+let currentApiKey = localStorage.getItem(STORAGE_KEY) || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : "") || "";
 let genAI: GoogleGenAI | null = null;
 
 // Initialize immediately if key is present
