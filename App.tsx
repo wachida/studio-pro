@@ -31,7 +31,7 @@ declare global {
 // --- Configuration: Database (Local Storage) ---
 // Mock Database
 const DEFAULT_USERS: User[] = [
-  { email: 'admin@pookanfai.com', password: 'password123', name: 'Super Admin', role: 'admin' },
+  { email: 'admin@pookanfai.com', password: 'Pizchy123', name: 'Super Admin', role: 'admin' },
   { email: 'writer@pookanfai.com', password: 'password123', name: 'Writer User', role: 'user' }
 ];
 
@@ -91,6 +91,14 @@ const App: React.FC = () => {
     chatInput: '',
     sbChatInput: ''
   });
+
+  // Specific Key for Media Generation
+  const [mediaApiKey, setMediaApiKey] = useState(() => localStorage.getItem('pookanfai_media_key') || '');
+
+  // Save media key to localStorage
+  useEffect(() => {
+    localStorage.setItem('pookanfai_media_key', mediaApiKey);
+  }, [mediaApiKey]);
 
   const [charVoice, setCharVoice] = useState('Kore');
   
@@ -655,7 +663,7 @@ const App: React.FC = () => {
         disabled={!!loadingAudioId}
         title="อ่านออกเสียง"
       >
-        {isLoading ? <i className="ph ph-spinner animate-spin text-indigo-500"></i> : <i className="ph ph-speaker-high"></i>}
+        {isLoading ? <i className="ph-bold ph-spinner animate-spin text-indigo-500"></i> : <i className="ph-bold ph-speaker-high"></i>}
       </button>
     );
   };
@@ -692,11 +700,13 @@ const App: React.FC = () => {
     setLoading(prev => ({ ...prev, 'image': true }));
     setGeneratedImage(null);
 
-    const result = await generateImageContent(inputs.imagePrompt.trim());
+    // Pass the media-specific API key if available
+    const result = await generateImageContent(inputs.imagePrompt.trim(), mediaApiKey);
     if (result.success && result.base64) {
       setGeneratedImage(`data:image/jpeg;base64,${result.base64}`);
     } else {
         console.error(result.error);
+        alert(result.error || "เกิดข้อผิดพลาดในการสร้างภาพ");
     }
     setLoading(prev => ({ ...prev, 'image': false }));
   };
@@ -1181,6 +1191,21 @@ const App: React.FC = () => {
                 <div id="content-image-gen" className="block">
                 <div className="flex flex-col md:flex-row gap-6">
                     <div className="w-full md:w-1/3 space-y-4">
+                    {/* Media API Key Input */}
+                    <div>
+                        <label className="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-2">
+                            <i className="ph-fill ph-key text-pink-500"></i> API Key สำหรับรูป/วิดีโอ (Optional)
+                        </label>
+                        <input 
+                            type="password"
+                            className="w-full p-4 text-sm neumorphic-inset text-slate-700 placeholder-slate-400"
+                            placeholder="วาง API Key ที่รองรับ Imagen ที่นี่..."
+                            value={mediaApiKey}
+                            onChange={(e) => setMediaApiKey(e.target.value)}
+                        />
+                        <p className="text-[10px] text-slate-500 mt-1 ml-1">* หากเว้นว่าง จะใช้ API Key หลักของระบบ</p>
+                    </div>
+
                     <div>
                         <label className="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-2">
                         <i className="ph-fill ph-magic-wand text-indigo-500"></i> คำบรรยายภาพ (Prompt)
@@ -1332,7 +1357,7 @@ const App: React.FC = () => {
                     <button onClick={() => runGeneration('editorText', 'editor-result', `คุณคือบรรณาธิการ...`, (input) => `ช่วยวิจารณ์งานเขียนนี้: \n\n${input}`)} className="text-white font-semibold py-3 px-6 flex items-center gap-2 mx-auto disabled:opacity-50 neumorphic-btn-primary" style={{background: 'linear-gradient(145deg, #34d399, #10b981)'}}>
                     {loading['editor-result'] ? <div className="loader"></div> : <><i className="ph-bold ph-magnifying-glass"></i> วิเคราะห์งานเขียน</>}
                     </button>
-                    {results['editor-result'] && <div id="editor-result" className="ai-result-box neumorphic-card"><div className="action-buttons">{renderTTSButton('editor-result-content', 'editor-result-content')}<button className="action-btn" onClick={() => copyContent('editor-result-content')}><i className="ph ph-copy"></i></button></div><div id="editor-result-content" className="responsive-content" dangerouslySetInnerHTML={{ __html: results['editor-result'] }}></div></div>}
+                    {results['editor-result'] && <div id="editor-result" className="ai-result-box neumorphic-card"><div className="action-buttons">{renderTTSButton('editor-result-content', 'editor-result-content')}<button className="action-btn" onClick={() => copyContent('editor-result-content')}><i className="ph-bold ph-copy"></i></button></div><div id="editor-result-content" className="responsive-content" dangerouslySetInnerHTML={{ __html: results['editor-result'] }}></div></div>}
                 </div>
             )}
           </div>
@@ -1381,7 +1406,7 @@ const App: React.FC = () => {
               <div className="flex items-center gap-3 mb-4 text-orange-600 font-bold"><div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center neumorphic-btn"><i className="ph-fill ph-arrows-clockwise text-xl"></i></div>เรียบเรียงใหม่ (Rewrite)</div>
               <textarea rows={2} className="w-full p-3 text-sm mb-3 neumorphic-inset" placeholder="ข้อความเดิม..." value={inputs.rewriteText} onChange={(e) => updateInput('rewriteText', e.target.value)}></textarea>
               <button onClick={() => runGeneration('rewriteText', 'rewrite-result', 'You are a professional editor. Rewrite the text to be smoother, clearer and more natural while keeping the original meaning.', (input) => `Rewrite this text in Thai to be smoother: "${input}"`)} className="w-full bg-orange-600 text-white py-2.5 text-sm font-medium disabled:opacity-50 neumorphic-btn-primary" style={{background: 'linear-gradient(145deg, #fb923c, #ea580c)'}}>เรียบเรียงใหม่</button>
-              {results['rewrite-result'] && <div className="ai-result-box neumorphic-card p-4 mt-3"><div className="action-buttons">{renderTTSButton('rewrite-result-content', 'rewrite-result-content')}<button className="action-btn" onClick={() => copyContent('rewrite-result-content')}><i className="ph ph-copy"></i></button></div><div id="rewrite-result-content" className="responsive-content" dangerouslySetInnerHTML={{ __html: results['rewrite-result'] }}></div></div>}
+              {results['rewrite-result'] && <div className="ai-result-box neumorphic-card p-4 mt-3"><div className="action-buttons">{renderTTSButton('rewrite-result-content', 'rewrite-result-content')}<button className="action-btn" onClick={() => copyContent('rewrite-result-content')}><i className="ph-bold ph-copy"></i></button></div><div id="rewrite-result-content" className="responsive-content" dangerouslySetInnerHTML={{ __html: results['rewrite-result'] }}></div></div>}
             </div>
             <div className="p-6 neumorphic-card relative overflow-hidden group">
               <div className="flex items-center gap-3 mb-4 text-fuchsia-600 font-bold"><div className="w-10 h-10 rounded-full bg-fuchsia-100 flex items-center justify-center neumorphic-btn"><i className="ph-fill ph-identification-card text-xl"></i></div>ตั้งชื่อ</div>

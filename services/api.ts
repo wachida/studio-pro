@@ -5,14 +5,14 @@ const STORAGE_KEY = "gemini_api_key";
 // Declare process for TypeScript to avoid "Cannot find name 'process'" error during build
 declare const process: {
   env: {
-    GEMINI_API_KEY?: string;
+    API_KEY?: string;
     [key: string]: any;
   }
 };
 
 // Store the client instance and key in module scope
 // Priority: 1. LocalStorage (User entered) 2. Process Env (Deploy config) 3. Empty
-let currentApiKey = localStorage.getItem(STORAGE_KEY) || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : "") || "";
+let currentApiKey = localStorage.getItem(STORAGE_KEY) || (typeof process !== 'undefined' ? process.env.API_KEY : "") || "";
 let genAI: GoogleGenAI | null = null;
 
 // Initialize immediately if key is present
@@ -108,11 +108,22 @@ export async function generateLLMContent(prompt: string, tools: any[] = [], syst
   }
 }
 
-export async function generateImageContent(prompt: string) {
-    if (!genAI) return { success: false, error: 'กรุณาระบุ API Key ก่อนใช้งาน' };
+export async function generateImageContent(prompt: string, customApiKey?: string) {
+    // If customApiKey is provided, use it to create a temporary client.
+    // Otherwise, use the global genAI client.
+    let client = genAI;
+    if (customApiKey && customApiKey.trim() !== "") {
+        try {
+            client = new GoogleGenAI({ apiKey: customApiKey });
+        } catch (e) {
+            console.error("Invalid Custom API Key provided");
+        }
+    }
+
+    if (!client) return { success: false, error: 'กรุณาระบุ API Key ก่อนใช้งาน' };
 
     try {
-        const response = await genAI.models.generateImages({
+        const response = await client.models.generateImages({
             model: 'imagen-4.0-generate-001',
             prompt: prompt,
             config: {
