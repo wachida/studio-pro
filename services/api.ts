@@ -96,7 +96,7 @@ export async function generateLLMContent(prompt: string, tools: any[] = [], syst
     }
 
     const response = await genAI.models.generateContent({
-      model: 'gemini-pro',
+      model: 'gemini-2.5-flash-preview-09-2025',
       contents: prompt,
       config: config
     });
@@ -124,7 +124,7 @@ export async function generateImageContent(prompt: string, customApiKey?: string
 
     try {
         const response = await client.models.generateImages({
-            model: 'imagen-3',
+            model: 'imagen-4.0-generate-001',
             prompt: prompt,
             config: {
                 numberOfImages: 1,
@@ -151,7 +151,7 @@ export async function geminiTTS(text: string, voice: string = 'Kore') {
 
   try {
     const response = await genAI.models.generateContent({
-      model: 'tts-1',
+      model: 'gemini-2.5-flash-preview-tts',
       contents: { parts: [{ text: text }] },
       config: {
         responseModalities: ['AUDIO'],
