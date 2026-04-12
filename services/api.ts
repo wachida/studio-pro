@@ -88,20 +88,16 @@ export async function generateLLMContent(prompt: string, tools: any[] = [], syst
   if (!genAI) return "กรุณาระบุ API Key ก่อนใช้งาน";
 
   try {
-    const config: any = {
-      systemInstruction: systemPrompt,
-    };
-    if (tools.length > 0) {
-      config.tools = tools;
-    }
-
-    const response = await genAI.models.generateContent({
-      model: 'gemini-2.5-flash-preview-09-2025',
-      contents: prompt,
-      config: config
+    // ใช้โมเดลตระกูล Flash ที่เสถียรและฟรี
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-1.5-flash', // หรือ 'gemini-2.0-flash' ถ้าต้องการความใหม่
+      systemInstruction: systemPrompt 
     });
-    
-    return response.text || 'ไม่สามารถสร้างเนื้อหาได้ (Empty response).';
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text();
+
   } catch (error: any) {
     console.error("LLM Generation Error:", error);
     return 'เกิดข้อผิดพลาดในการเชื่อมต่อกับ AI: ' + error.message;
