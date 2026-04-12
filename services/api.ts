@@ -90,7 +90,7 @@ export async function generateLLMContent(prompt: string, tools: any[] = [], syst
   try {
     // ใช้โมเดลตระกูล Flash ที่เสถียรและฟรี
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-flash', // หรือ 'gemini-2.0-flash' ถ้าต้องการความใหม่
+      model: 'gemini-2.0-flash', // หรือ 'gemini-2.0-flash' ถ้าต้องการความใหม่
       systemInstruction: systemPrompt 
     });
 
