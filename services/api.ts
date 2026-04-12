@@ -96,7 +96,7 @@ export async function generateLLMContent(prompt: string, tools: any[] = [], syst
     }
 
     const response = await genAI.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-pro',
       contents: prompt,
       config: config
     });
