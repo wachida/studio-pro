@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 
 const STORAGE_KEY = "gemini_api_key";
 
-// Declare process for TypeScript compatibility
+// Declare process for TypeScript to avoid "Cannot find name 'process'" error during build
 declare const process: {
   env: {
     API_KEY?: string;
@@ -10,20 +10,22 @@ declare const process: {
   }
 };
 
-// 1. ดึง Key จากแหล่งต่างๆ (ลำดับความสำคัญ: LocalStorage > Environment Variable)
-let currentApiKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : "";
-if (!currentApiKey && typeof process !== 'undefined') {
-  currentApiKey = process.env.API_KEY || "";
-}
+// Store the client instance and key in module scope
+// Priority: 1. LocalStorage (User entered) 2. Process Env (Deploy config) 3. Empty
+let currentApiKey = localStorage.getItem(STORAGE_KEY) || (typeof process !== 'undefined' ? process.env.API_KEY : "") || "";
+let genAI: GoogleGenAI | null = null;
 
-let genAI: GoogleGenAI | null = currentApiKey ? new GoogleGenAI(currentApiKey) : null;
+// Initialize immediately if key is present
+if (currentApiKey) {
+  genAI = new GoogleGenAI({ apiKey: currentApiKey });
+}
 
 // --- Dynamic Key Management ---
 export function setApiKey(key: string) {
-  if (!key) return;
   currentApiKey = key;
+  // Save to browser storage so user doesn't have to re-enter on refresh
   localStorage.setItem(STORAGE_KEY, key);
-  genAI = new GoogleGenAI(key);
+  genAI = new GoogleGenAI({ apiKey: key });
 }
 
 export function removeApiKey() {
@@ -36,11 +38,12 @@ export function hasApiKey(): boolean {
   return !!currentApiKey;
 }
 
-// --- Helpers ---
+// Helpers
 function base64ToArrayBuffer(base64: string) {
   const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes.buffer;
@@ -49,122 +52,130 @@ function base64ToArrayBuffer(base64: string) {
 function pcmToWav(int16Array: Int16Array, sampleRate: number) {
   const numChannels = 1;
   const bytesPerSample = 2;
+  const byteRate = sampleRate * numChannels * bytesPerSample;
   const blockAlign = numChannels * bytesPerSample;
-  const byteRate = sampleRate * blockAlign;
   const dataSize = int16Array.byteLength;
   
   const buffer = new ArrayBuffer(44 + dataSize);
   const view = new DataView(buffer);
   
+  // RIFF chunk
   view.setUint32(0, 0x52494646, false); // "RIFF"
-  view.setUint32(4, 36 + dataSize, true);
+  view.setUint32(4, 36 + dataSize, true); // Chunk size
   view.setUint32(8, 0x57415645, false); // "WAVE"
-  view.setUint32(12, 0x666d7420, false); // "fmt "
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, 16, true);
-  view.setUint32(36, 0x64617461, false); // "data"
-  view.setUint32(40, dataSize, true);
   
-  new Int16Array(buffer, 44).set(int16Array);
+  // fmt chunk
+  view.setUint32(12, 0x666d7420, false); // "fmt "
+  view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+  view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
+  view.setUint16(22, numChannels, true); // NumChannels
+  view.setUint32(24, sampleRate, true); // SampleRate
+  view.setUint32(28, byteRate, true); // ByteRate
+  view.setUint16(32, blockAlign, true); // BlockAlign
+  view.setUint16(34, 16, true); // BitsPerSample (16-bit)
+  
+  // data chunk
+  view.setUint32(36, 0x64617461, false); // "data"
+  view.setUint32(40, dataSize, true); // Subchunk2Size
+  
+  const dataView = new Int16Array(buffer, 44);
+  dataView.set(int16Array);
+  
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
-// --- Core Functions ---
-
-/**
- * ฟังก์ชันสร้างข้อความ (LLM) 
- * แนะนำให้ใช้ gemini-2.0-flash สำหรับ Free Tier
- */
 export async function generateLLMContent(prompt: string, tools: any[] = [], systemPrompt: string) {
   if (!genAI) return "กรุณาระบุ API Key ก่อนใช้งาน";
 
   try {
-    // ใช้ getGenerativeModel แทนการเรียกผ่าน models.generateContent โดยตรง
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.0-flash', 
-      systemInstruction: systemPrompt 
-    });
+    const config: any = {
+      systemInstruction: systemPrompt,
+    };
+    if (tools.length > 0) {
+      config.tools = tools;
+    }
 
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      tools: tools.length > 0 ? [{ functionDeclarations: tools }] : undefined
+    const response = await genAI.models.generateContent({
+      model: 'gemini-2.5-flash-preview-09-2025',
+      contents: prompt,
+      config: config
     });
-
-    const response = await result.response;
-    return response.text();
+    
+    return response.text || 'ไม่สามารถสร้างเนื้อหาได้ (Empty response).';
   } catch (error: any) {
     console.error("LLM Generation Error:", error);
-    return `เกิดข้อผิดพลาด: ${error.message}`;
+    return 'เกิดข้อผิดพลาดในการเชื่อมต่อกับ AI: ' + error.message;
   }
 }
 
-/**
- * ฟังก์ชันสร้างรูปภาพ
- * แนะนำให้ใช้ imagen-3 (ตัว Imagen 4.0 อาจจะยังไม่เปิดเสรีในบางพื้นที่)
- */
 export async function generateImageContent(prompt: string, customApiKey?: string) {
+    // If customApiKey is provided, use it to create a temporary client.
+    // Otherwise, use the global genAI client.
     let client = genAI;
-    if (customApiKey?.trim()) {
-        client = new GoogleGenAI(customApiKey);
+    if (customApiKey && customApiKey.trim() !== "") {
+        try {
+            client = new GoogleGenAI({ apiKey: customApiKey });
+        } catch (e) {
+            console.error("Invalid Custom API Key provided");
+        }
     }
 
     if (!client) return { success: false, error: 'กรุณาระบุ API Key ก่อนใช้งาน' };
 
     try {
-        // ใช้ชื่อโมเดลที่เสถียร Imagen 3
-        const model = client.getGenerativeModel({ model: 'imagen-3' });
+        const response = await client.models.generateImages({
+            model: 'imagen-4.0-generate-001',
+            prompt: prompt,
+            config: {
+                numberOfImages: 1,
+                outputMimeType: 'image/jpeg',
+                aspectRatio: '1:1',
+            },
+        });
         
-        // หมายเหตุ: โครงสร้างการส่งภาพอาจต่างกันตามเวอร์ชัน SDK 
-        // หาก SDK ของคุณเป็นเวอร์ชันใหม่มาก ให้ใช้ตามเอกสารล่าสุด
-        const response: any = await model.generateContent(prompt); 
-        const base64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        const base64 = response.generatedImages?.[0]?.image?.imageBytes;
         
         if (base64) {
             return { success: true, base64: base64 };
         } else {
-            return { success: false, error: 'ไม่สามารถสร้างภาพได้ในขณะนี้' };
+            return { success: false, error: 'ไม่สามารถสร้างภาพได้' };
         }
     } catch (error: any) {
-        console.error("Image Error:", error);
+        console.error("Image Generation Error:", error);
         return { success: false, error: error.message };
     }
 }
 
-/**
- * ฟังก์ชันสร้างเสียง (TTS)
- * ปัจจุบัน Gemini 2.0 Flash สามารถรับส่ง Audio ได้ในตัว
- */
-export async function geminiTTS(text: string, voice: string = 'Aoide') {
+export async function geminiTTS(text: string, voice: string = 'Kore') {
   if (!genAI) return null;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-    
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: text }] }],
-      generationConfig: {
-        responseMimeType: "audio/wav", // ตรวจสอบว่าโมเดลที่ใช้รองรับ direct audio output หรือไม่
+    const response = await genAI.models.generateContent({
+      model: 'gemini-2.5-flash-preview-tts',
+      contents: { parts: [{ text: text }] },
+      config: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: voice }
+          }
+        }
       }
     });
     
-    // หมายเหตุ: หากต้องการ TTS คุณภาพสูง แนะนำให้ใช้ Google Cloud TTS API โดยตรง
-    // แต่ถ้าใช้ผ่าน Gemini ให้เช็ค response modalities
-    const audioPart = result.response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-    const audioData = audioPart?.inlineData?.data;
+    const part = response.candidates?.[0]?.content?.parts?.[0];
+    const audioData = part?.inlineData?.data;
     
     if (audioData) {
       const pcmData = base64ToArrayBuffer(audioData);
-      const wavBlob = pcmToWav(new Int16Array(pcmData), 24000);
+      const pcm16 = new Int16Array(pcmData);
+      const wavBlob = pcmToWav(pcm16, 24000);
       return URL.createObjectURL(wavBlob);
+    } else {
+       throw new Error("No audio data");
     }
-    return null;
   } catch (error) {
-    console.error("TTS Error:", error);
+    console.error("Error generating TTS:", error);
     return null;
   }
-  }
+}
