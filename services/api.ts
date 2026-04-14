@@ -1,41 +1,38 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 
-const STORAGE_KEY = "gemini_api_key";
+// Lazy initialization for GoogleGenAI
+let aiInstance: GoogleGenAI | null = null;
+let currentApiKey: string | null = null;
 
-// Declare process for TypeScript to avoid "Cannot find name 'process'" error during build
-declare const process: {
-  env: {
-    API_KEY?: string;
-    [key: string]: any;
-  }
-};
-
-// Store the client instance and key in module scope
-// Priority: 1. LocalStorage (User entered) 2. Process Env (Deploy config) 3. Empty
-let currentApiKey = localStorage.getItem(STORAGE_KEY) || (typeof process !== 'undefined' ? process.env.API_KEY : "") || "";
-let genAI: GoogleGenAI | null = null;
-
-// Initialize immediately if key is present
-if (currentApiKey) {
-  genAI = new GoogleGenAI({ apiKey: currentApiKey });
-}
-
-// --- Dynamic Key Management ---
 export function setApiKey(key: string) {
   currentApiKey = key;
-  // Save to browser storage so user doesn't have to re-enter on refresh
-  localStorage.setItem(STORAGE_KEY, key);
-  genAI = new GoogleGenAI({ apiKey: key });
+  aiInstance = new GoogleGenAI({ apiKey: key });
 }
 
-export function removeApiKey() {
-  currentApiKey = "";
-  localStorage.removeItem(STORAGE_KEY);
-  genAI = null;
+function getAI() {
+  if (!aiInstance) {
+    const apiKey = currentApiKey || process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not defined. Please ensure it is set in your environment variables.");
+    }
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
 }
 
-export function hasApiKey(): boolean {
-  return !!currentApiKey;
+export async function validateApiKey(key: string): Promise<boolean> {
+  try {
+    const tempAi = new GoogleGenAI({ apiKey: key });
+    await tempAi.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: [{ role: 'user', parts: [{ text: 'test' }] }],
+      config: { maxOutputTokens: 1 }
+    });
+    return true;
+  } catch (error) {
+    console.error("API Key Validation Error:", error);
+    return false;
+  }
 }
 
 // Helpers
@@ -85,55 +82,63 @@ function pcmToWav(int16Array: Int16Array, sampleRate: number) {
 }
 
 export async function generateLLMContent(prompt: string, tools: any[] = [], systemPrompt: string) {
-  if (!genAI) return "กรุณาระบุ API Key ก่อนใช้งาน";
-
   try {
-    const config: any = {
-      systemInstruction: systemPrompt,
+    const ai = getAI();
+    const params: any = {
+      model: 'gemini-3-flash-preview',
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: systemPrompt,
+      }
     };
-    if (tools.length > 0) {
-      config.tools = tools;
+
+    if (tools && tools.length > 0) {
+      params.tools = tools;
+      // Enable hybrid mode if tools are present
+      params.toolConfig = { includeServerSideToolInvocations: true };
     }
 
-    const response = await genAI.models.generateContent({
-      model: 'gemini-2.5-flash-preview-09-2025',
-      contents: prompt,
-      config: config
-    });
+    const response = await ai.models.generateContent(params);
     
-    return response.text || 'ไม่สามารถสร้างเนื้อหาได้ (Empty response).';
+    // Robust text extraction
+    let text = response.text;
+    if (!text && response.candidates?.[0]?.content?.parts) {
+      text = response.candidates[0].content.parts
+        .filter(part => part.text)
+        .map(part => part.text)
+        .join('\n');
+    }
+    
+    return text || 'ไม่สามารถสร้างเนื้อหาได้ (Empty response).';
   } catch (error: any) {
     console.error("LLM Generation Error:", error);
     return 'เกิดข้อผิดพลาดในการเชื่อมต่อกับ AI: ' + error.message;
   }
 }
 
-export async function generateImageContent(prompt: string, customApiKey?: string) {
-    // If customApiKey is provided, use it to create a temporary client.
-    // Otherwise, use the global genAI client.
-    let client = genAI;
-    if (customApiKey && customApiKey.trim() !== "") {
-        try {
-            client = new GoogleGenAI({ apiKey: customApiKey });
-        } catch (e) {
-            console.error("Invalid Custom API Key provided");
-        }
-    }
-
-    if (!client) return { success: false, error: 'กรุณาระบุ API Key ก่อนใช้งาน' };
-
+export async function generateImageContent(prompt: string) {
     try {
-        const response = await client.models.generateImages({
-            model: 'imagen-4.0-generate-001',
-            prompt: prompt,
+        const ai = getAI();
+        // Using gemini-2.5-flash-image as the standard free-tier friendly model
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: {
+                parts: [{ text: prompt }],
+            },
             config: {
-                numberOfImages: 1,
-                outputMimeType: 'image/jpeg',
-                aspectRatio: '1:1',
+                imageConfig: {
+                    aspectRatio: "1:1",
+                },
             },
         });
         
-        const base64 = response.generatedImages?.[0]?.image?.imageBytes;
+        let base64 = "";
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
+            if (part.inlineData?.data) {
+                base64 = part.inlineData.data;
+                break;
+            }
+        }
         
         if (base64) {
             return { success: true, base64: base64 };
@@ -147,14 +152,13 @@ export async function generateImageContent(prompt: string, customApiKey?: string
 }
 
 export async function geminiTTS(text: string, voice: string = 'Kore') {
-  if (!genAI) return null;
-
   try {
-    const response = await genAI.models.generateContent({
+    const ai = getAI();
+    const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-preview-tts',
-      contents: { parts: [{ text: text }] },
+      contents: [{ parts: [{ text: text }] }],
       config: {
-        responseModalities: ['AUDIO'],
+        responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: { voiceName: voice }

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { marked } from 'marked';
-import { generateLLMContent, generateImageContent, geminiTTS, setApiKey, hasApiKey, removeApiKey } from './services/api';
+import { generateLLMContent, generateImageContent, geminiTTS, setApiKey, validateApiKey } from './services/api';
 
 // --- Types ---
 interface ChatMessage {
@@ -58,6 +58,8 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [userApiKey, setUserApiKey] = useState('');
+  const [isValidatingKey, setIsValidatingKey] = useState(false);
   const [loginError, setLoginError] = useState('');
 
   // --- Admin Panel State ---
@@ -92,14 +94,6 @@ const App: React.FC = () => {
     sbChatInput: ''
   });
 
-  // Specific Key for Media Generation
-  const [mediaApiKey, setMediaApiKey] = useState(() => localStorage.getItem('pookanfai_media_key') || '');
-
-  // Save media key to localStorage
-  useEffect(() => {
-    localStorage.setItem('pookanfai_media_key', mediaApiKey);
-  }, [mediaApiKey]);
-
   const [charVoice, setCharVoice] = useState('Kore');
   
   // --- State for Results (HTML strings for markdown) ---
@@ -126,16 +120,6 @@ const App: React.FC = () => {
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null); // Track which button is loading TTS
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // --- API Availability ---
-  const [apiReady, setApiReady] = useState(false);
-  const [userKeyInput, setUserKeyInput] = useState('');
-
-  useEffect(() => {
-    // Check if API key exists on mount and when auth changes
-    const ready = hasApiKey();
-    setApiReady(ready);
-  }, [isAuthenticated]);
-
   // --- Helpers for Avatars ---
   const getAvatarUrl = (type: 'user' | 'sb' | 'char' | 'logo', seed: string = '', voice: string = '') => {
       if (type === 'logo') {
@@ -156,18 +140,32 @@ const App: React.FC = () => {
   };
 
   // --- Auth Logic ---
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
       e.preventDefault();
       setLoginError('');
       
+      if (!userApiKey.trim()) {
+          setLoginError('กรุณากรอก Gemini API Key');
+          return;
+      }
+
+      setIsValidatingKey(true);
+      const isValid = await validateApiKey(userApiKey.trim());
+      setIsValidatingKey(false);
+
+      if (!isValid) {
+          setLoginError('API Key ไม่ถูกต้อง หรือไม่สามารถใช้งานได้');
+          return;
+      }
+
       const user = users.find(u => u.email === loginEmail && u.password === loginPassword);
       
       if (user) {
+          setApiKey(userApiKey.trim());
           setIsAuthenticated(true);
           setCurrentUser(user);
-          setApiReady(hasApiKey());
       } else {
-          setLoginError('อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือคุณไม่ได้รับสิทธิ์เข้าใช้งาน');
+          setLoginError('อีเมลหรือรหัสผ่านไม่ถูกต้อง');
       }
   };
 
@@ -177,21 +175,6 @@ const App: React.FC = () => {
       setLoginEmail('');
       setLoginPassword('');
       setShowAdminPanel(false);
-  };
-
-  const handleSaveApiKey = () => {
-    if (userKeyInput.trim()) {
-      setApiKey(userKeyInput.trim());
-      setApiReady(true);
-    } else {
-      alert("กรุณากรอก API Key");
-    }
-  };
-
-  const handleChangeApiKey = () => {
-      removeApiKey();
-      setApiReady(false);
-      setUserKeyInput('');
   };
 
   // --- User Management Logic (Admin Only) ---
@@ -700,8 +683,7 @@ const App: React.FC = () => {
     setLoading(prev => ({ ...prev, 'image': true }));
     setGeneratedImage(null);
 
-    // Pass the media-specific API key if available
-    const result = await generateImageContent(inputs.imagePrompt.trim(), mediaApiKey);
+    const result = await generateImageContent(inputs.imagePrompt.trim());
     if (result.success && result.base64) {
       setGeneratedImage(`data:image/jpeg;base64,${result.base64}`);
     } else {
@@ -820,7 +802,7 @@ const App: React.FC = () => {
                 />
             </div>
             <h1 className="text-3xl font-bold text-slate-800 mb-2">Writer Studio Pro</h1>
-            <p className="text-slate-500 mb-8 text-sm text-center">ระบบสำหรับนักเขียนนวนิยายมืออาชีพ<br/>กรุณาเข้าสู่ระบบเพื่อใช้งาน</p>
+            <p className="text-slate-500 mb-8 text-sm text-center">เครื่องมือสำหรับนักเขียน+พากย์เสียง มืออาชีพ<br/>กรุณาเข้าสู่ระบบเพื่อใช้งาน</p>
 
             <form onSubmit={handleLogin} className="w-full space-y-5">
                 <div>
@@ -852,6 +834,31 @@ const App: React.FC = () => {
                     </div>
                 </div>
 
+                <div>
+                    <div className="flex justify-between items-center mb-2 ml-1">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide">Gemini API Key</label>
+                        <a 
+                            href="https://aistudio.google.com/app/apikey" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-[10px] font-bold text-indigo-500 hover:underline flex items-center gap-1"
+                        >
+                            <i className="ph-bold ph-arrow-square-out"></i> ขอรับ API Key ฟรี
+                        </a>
+                    </div>
+                    <div className="relative">
+                        <i className="ph-fill ph-key absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        <input 
+                            type="password" 
+                            className="w-full p-4 pl-12 text-sm neumorphic-inset text-slate-700 font-medium transition-all focus:ring-2 focus:ring-indigo-200" 
+                            placeholder="AIzaSy..."
+                            value={userApiKey}
+                            onChange={(e) => setUserApiKey(e.target.value)}
+                            required
+                        />
+                    </div>
+                </div>
+
                 {loginError && (
                     <div className="p-3 rounded-lg bg-red-50 text-red-500 text-xs text-center border border-red-100 flex items-center justify-center gap-2">
                         <i className="ph-fill ph-warning-circle"></i> {loginError}
@@ -860,62 +867,53 @@ const App: React.FC = () => {
 
                 <button 
                     type="submit" 
-                    className="w-full text-white font-bold py-4 rounded-xl neumorphic-btn-primary mt-4 text-base shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                    disabled={isValidatingKey}
+                    className="w-full text-white font-bold py-4 rounded-xl neumorphic-btn-primary mt-4 text-base shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:cursor-wait flex items-center justify-center gap-2"
                 >
-                    เข้าสู่ระบบ
+                    {isValidatingKey ? (
+                        <><i className="ph-bold ph-spinner animate-spin"></i> กำลังตรวจสอบ API Key...</>
+                    ) : (
+                        'เข้าสู่ระบบ'
+                    )}
                 </button>
             </form>
-         </div>
-      </div>
-    );
-  }
 
-  // --- RENDER 2: API KEY WALL ---
-  if (!apiReady) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100 relative overflow-hidden">
-         <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] bg-blue-300 rounded-full blur-[100px] opacity-30"></div>
-         <div className="absolute bottom-[-20%] left-[-10%] w-[50%] h-[50%] bg-pink-300 rounded-full blur-[100px] opacity-30"></div>
-
-         <div className="neumorphic-card p-8 md:p-10 w-full max-w-md relative z-10 flex flex-col items-center">
-             <div className="w-20 h-20 mx-auto mb-6 rounded-full shadow-lg overflow-hidden border-2 border-white bg-indigo-50">
-                <img 
-                    src={getAvatarUrl('user', currentUser?.name)} 
-                    alt="User" 
-                    className="w-full h-full object-cover" 
-                />
-            </div>
-            <h2 className="text-2xl font-bold text-slate-800 text-center">ตั้งค่า API Key</h2>
-            <p className="text-slate-500 mt-2 text-sm text-center mb-6">
-                ยินดีต้อนรับ <strong>{currentUser?.name}</strong><br/>
-                กรุณากรอก Google Gemini API Key ของคุณเพื่อเริ่มใช้งาน
-                <br/>
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
-                  (กดที่นี่เพื่อรับ API Key ฟรี)
+            {/* Promotion & Contact Section */}
+            <div className="mt-8 w-full pt-6 border-t border-slate-100 flex flex-col items-center text-center">
+                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">ยังไม่มีบัญชีใช้งาน?</p>
+                
+                <a 
+                    href="https://line.me/ti/p/Pq7cizlrXb" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 bg-[#12c84f] hover:bg-[#0fb344] text-white font-bold py-2.5 px-6 rounded-full shadow-md transition-all hover:scale-[1.05] active:scale-[0.95] mb-3 text-sm"
+                >
+                    <i className="ph-fill ph-chats-circle text-lg"></i>
+                    สมัครใช้บริการ คลิก
                 </a>
-            </p>
-            
-            <input 
-              type="password"
-              className="w-full p-4 text-sm mb-4 neumorphic-inset text-center tracking-widest text-slate-700 font-medium"
-              placeholder="วาง API Key ที่นี่..."
-              value={userKeyInput}
-              onChange={(e) => setUserKeyInput(e.target.value)}
-            />
-            
-            <button 
-              onClick={handleSaveApiKey}
-              className="w-full text-white font-bold py-3.5 rounded-xl neumorphic-btn-primary transition-all hover:scale-[1.02]"
-            >
-              บันทึกและเริ่มใช้งาน
-            </button>
-            
-            <button 
-              onClick={handleLogout}
-              className="mt-6 text-xs text-slate-400 hover:text-red-500 flex items-center gap-1"
-            >
-               <i className="ph-bold ph-sign-out"></i> ออกจากระบบ
-            </button>
+                
+                <p className="text-xs font-bold text-indigo-500 mb-5">ติดต่อแอดมินเพื่อเปิดระบบ</p>
+                
+                <div className="w-full max-w-[280px] bg-gradient-to-br from-rose-50 to-orange-50 border border-rose-100 rounded-2xl p-4 shadow-sm relative overflow-hidden">
+                    <div className="absolute -right-2 -top-2 opacity-10">
+                        <i className="ph-fill ph-sparkle text-4xl text-rose-600"></i>
+                    </div>
+                    <p className="text-rose-600 text-xs font-bold mb-2 flex items-center justify-center gap-1.5">
+                        <i className="ph-fill ph-fire text-sm"></i> โปรโมชั่นก่อนสิ้นปี!
+                    </p>
+                    <div className="flex flex-col">
+                        <p className="text-slate-400 text-[10px] font-bold uppercase tracking-tighter">
+                            จากปกติ <span className="line-through">8,900</span>
+                        </p>
+                        <p className="text-xl font-black text-rose-600 leading-none my-1">
+                            1,990.-
+                        </p>
+                        <p className="text-[10px] font-bold text-rose-400">
+                            (จ่ายครั้งเดียว ใช้ได้ตลอดชีพ)
+                        </p>
+                    </div>
+                </div>
+            </div>
          </div>
       </div>
     );
@@ -1137,15 +1135,7 @@ const App: React.FC = () => {
                  </button>
              )}
 
-             <div 
-                id="api-status" 
-                onClick={handleChangeApiKey} 
-                className={`cursor-pointer w-8 h-8 md:w-auto md:h-auto md:px-3 md:py-1 rounded-full flex items-center justify-center gap-1 transition-colors duration-300 neumorphic-btn bg-green-100 text-green-700`}
-                title={'เปลี่ยน API Key'}
-             >
-                <i className={`ph-fill ph-check-circle text-xs`}></i>
-                <span className="hidden md:inline text-xs font-medium">เปลี่ยน Key</span>
-             </div>
+
 
              <button 
                 onClick={handleLogout}
@@ -1191,21 +1181,6 @@ const App: React.FC = () => {
                 <div id="content-image-gen" className="block">
                 <div className="flex flex-col md:flex-row gap-6">
                     <div className="w-full md:w-1/3 space-y-4">
-                    {/* Media API Key Input */}
-                    <div>
-                        <label className="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-2">
-                            <i className="ph-fill ph-key text-pink-500"></i> API Key สำหรับรูป/วิดีโอ (Optional)
-                        </label>
-                        <input 
-                            type="password"
-                            className="w-full p-4 text-sm neumorphic-inset text-slate-700 placeholder-slate-400"
-                            placeholder="วาง API Key ที่รองรับ Imagen ที่นี่..."
-                            value={mediaApiKey}
-                            onChange={(e) => setMediaApiKey(e.target.value)}
-                        />
-                        <p className="text-[10px] text-slate-500 mt-1 ml-1">* หากเว้นว่าง จะใช้ API Key หลักของระบบ</p>
-                    </div>
-
                     <div>
                         <label className="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-2">
                         <i className="ph-fill ph-magic-wand text-indigo-500"></i> คำบรรยายภาพ (Prompt)
